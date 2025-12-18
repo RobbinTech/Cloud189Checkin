@@ -1,0 +1,50 @@
+name: Safe Auto Sync Fork with PR
+
+on:
+  schedule:
+    - cron: "0 0 * * *"  # 每天 UTC 0 点
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      # 1️⃣ Checkout fork 仓库
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2️⃣ 设置 GitHub 用户信息
+      - name: Setup Git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # 3️⃣ 添加上游仓库
+      - name: Add upstream
+        run: |
+          git remote add upstream https://github.com/wes-lin/Cloud189Checkin.git || echo "upstream already exists"
+          git fetch upstream
+
+      # 4️⃣ 创建临时分支并同步上游
+      - name: Create temporary branch and merge
+        run: |
+          git checkout -b auto-sync-temp
+          git merge upstream/main -m "Auto-sync upstream" || echo "Merge conflict, skipping changes"
+
+      # 5️⃣ 推送临时分支
+      - name: Push temporary branch
+        run: |
+          git push -u origin auto-sync-temp --force
+
+      # 6️⃣ 创建 Pull Request
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: main          # 你的主分支
+          head: auto-sync-temp
+          title: "Auto-sync upstream"
+          body: "This PR was automatically created to sync with the upstream repository."
+          draft: false
