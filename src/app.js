@@ -9,6 +9,7 @@ const accounts = require("../accounts");
 const { mask, delay } = require("./utils");
 const push = require("./push");
 const { log4js, cleanLogs, catLogs } = require("./logger");
+const fs = require("fs");
 const tokenDir = ".token";
 
 sdkLogger.configure({
@@ -23,37 +24,65 @@ const doUserTask = async (cloudClient, logger) => {
 };
 
 const run = async (userName, password, userSizeInfoMap, logger) => {
-  if (userName && password) {
-    const before = Date.now();
-    try {
-      logger.log("开始执行");
-      const cloudClient = new CloudClient({
-        username: userName,
-        password,
-        token: new FileTokenStore(`${tokenDir}/${userName}.json`),
-      });
-      const beforeUserSizeInfo = await cloudClient.getUserSizeInfo();
-      userSizeInfoMap.set(userName, {
-        cloudClient,
-        userSizeInfo: beforeUserSizeInfo,
-        logger,
-      });
-      await Promise.all([doUserTask(cloudClient, logger)]);
-    } catch (e) {
-      if (e.response) {
-        logger.log(`请求失败: ${e.response.statusCode}, ${e.response.body}`);
-      } else {
-        logger.error(e);
+  if (!(userName && password)) return;
+
+  const before = Date.now();
+  const tokenPath = `${tokenDir}/${userName}.json`;
+
+  const attempt = async () => {
+    const cloudClient = new CloudClient({
+      username: userName,
+      password,
+      token: new FileTokenStore(tokenPath),
+    });
+
+    const beforeUserSizeInfo = await cloudClient.getUserSizeInfo();
+
+    userSizeInfoMap.set(userName, {
+      cloudClient,
+      userSizeInfo: beforeUserSizeInfo,
+      logger,
+    });
+
+    await doUserTask(cloudClient, logger);
+  };
+
+  try {
+    logger.log("开始执行");
+
+    // 第一次：用缓存 token
+    await attempt();
+
+  } catch (e) {
+    const msg = String(e.message || "");
+
+    logger.error(e);
+
+    // 只针对 session 问题处理
+    if (msg.includes("Can not get session")) {
+      logger.warn("session 获取失败，删除 token 重试");
+
+      try {
+        if (fs.existsSync(tokenPath)) {
+          fs.unlinkSync(tokenPath);
+        }
+      } catch (err) {
+        logger.error("删除 token 失败", err);
       }
+
+      // 第二次：强制重新登录
+      await attempt();
+    } else {
       if (e.code === "ECONNRESET" || e.code === "ETIMEDOUT") {
         logger.error("请求超时");
         throw e;
       }
-    } finally {
-      logger.log(
-        `执行完毕, 耗时 ${((Date.now() - before) / 1000).toFixed(2)} 秒`
-      );
     }
+
+  } finally {
+    logger.log(
+      `执行完毕, 耗时 ${((Date.now() - before) / 1000).toFixed(2)} 秒`
+    );
   }
 };
 
