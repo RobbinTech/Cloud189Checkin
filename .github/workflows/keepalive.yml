@@ -1,0 +1,17 @@
+name: Workflow Keepalive
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'   # 每月 1 号执行一次即可（足够重置 60 天计时）
+  workflow_dispatch:      # 支持手动触发
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write       # 仅需此权限
+    steps:
+      - name: Re-enable scheduled workflows
+        uses: liskin/gh-workflow-keepalive@v1
+        # 或使用其他同类 Action，例如：
+        # uses: PhrozenByte/gh-workflow-immortality@v1
